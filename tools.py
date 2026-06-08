@@ -32,7 +32,8 @@ def tool_register_worker(
         )
         return (
             f"Registered {worker['full_name']} with fixed salary "
-            f"{_format_amount(worker['fixed_salary'])} (started {job_started_date})."
+            f"{_format_amount(worker['fixed_salary'])} (started {job_started_date}). "
+            f"Final salary: {_format_amount(worker['final_salary'])}."
         )
     except ValueError as exc:
         return str(exc)
@@ -56,6 +57,33 @@ def tool_add_bonus(worker: str, amount: float, note: str = "") -> str:
             f"Added bonus {_format_amount(amount)} to {record['full_name']}. "
             f"Net payable (all time): {_format_amount(breakdown['net_payable'])}."
         )
+    except ValueError as exc:
+        return str(exc)
+
+
+def tool_add_penalty(worker: str, amount: float, note: str = "") -> str:
+    """Add penalty for a worker. Returns human-readable result."""
+    try:
+        record = data.add_penalty(worker, amount, note)
+        final = record.get("final_salary", data.calculate_net_salary(record)["net_payable"])
+        return (
+            f"Added penalty {_format_amount(amount)} for {record['full_name']}. "
+            f"Final salary: {_format_amount(final)}."
+        )
+    except ValueError as exc:
+        return str(exc)
+
+
+def tool_delete_worker(worker: str) -> str:
+    """Delete a worker. Returns human-readable result."""
+    try:
+        key = data.resolve_worker_key(worker)
+        record = data.get_worker(key)
+        if record is None:
+            return f"Worker not found: {worker}"
+        name = record["full_name"]
+        data.delete_worker(key)
+        return f"Removed {name} from the worker list."
     except ValueError as exc:
         return str(exc)
 
@@ -102,6 +130,7 @@ def tool_calculate_salary(worker: str, period: str | None = None) -> str:
             f"fixed {_format_amount(breakdown['fixed_salary'])} + "
             f"bonuses {_format_amount(breakdown['total_bonuses'])} − "
             f"advances {_format_amount(breakdown['total_advances'])} − "
+            f"penalties {_format_amount(breakdown['total_penalties'])} − "
             f"paid {_format_amount(breakdown['total_payouts'])} = "
             f"net payable {_format_amount(breakdown['net_payable'])}."
         )
@@ -116,29 +145,61 @@ def tool_get_worker(worker: str) -> str:
         record = data.get_worker(key)
         if record is None:
             return f"Worker not found: {worker}"
-        breakdown = data.calculate_net_salary(record)
+        final = record.get("final_salary", data.calculate_net_salary(record)["net_payable"])
         return (
             f"{record['full_name']}: started {record['job_started_date']}, "
             f"birthdate {record['birthdate']}, "
             f"fixed salary {_format_amount(record['fixed_salary'])}, "
-            f"net payable {_format_amount(breakdown['net_payable'])}."
+            f"final salary {_format_amount(final)}."
         )
     except ValueError as exc:
         return str(exc)
 
 
+def _worker_balances() -> list[tuple[str, float]]:
+    """Return (full_name, net_payable) for each worker."""
+    workers = data.list_workers()
+    rows: list[tuple[str, float]] = []
+    for key, worker in workers.items():
+        final = worker.get(
+            "final_salary",
+            data.calculate_net_salary({"key": key, **worker})["net_payable"],
+        )
+        rows.append((worker["full_name"], final))
+    return rows
+
+
+def tool_list_workers(language: str = "en") -> str:
+    """List all workers with count and net payable balances."""
+    rows = _worker_balances()
+    if not rows:
+        empty = {
+            "en": "No workers registered yet.",
+            "ru": "Пока нет зарегистрированных работников.",
+            "uz": "Hozircha ro'yxatdan o'tgan ishchi yo'q.",
+        }
+        return empty.get(language, empty["en"])
+
+    count = len(rows)
+    if language == "uz":
+        lines = [f"Jami ishchilar soni: {count}", ""]
+        for index, (name, final) in enumerate(rows, start=1):
+            lines.append(f"{index}. {name} — {_format_amount(final)}")
+        return "\n".join(lines)
+
+    if language == "ru":
+        lines = [f"Всего работников: {count}", ""]
+        for index, (name, final) in enumerate(rows, start=1):
+            lines.append(f"{index}. {name} — {_format_amount(final)}")
+        return "\n".join(lines)
+
+    parts = [f"{name} ({_format_amount(final)})" for name, final in rows]
+    return f"Workers ({count}): " + ", ".join(parts)
+
+
 def tool_list() -> str:
     """List all workers and net payable balances."""
-    workers = data.list_workers()
-    if not workers:
-        return "No workers registered yet."
-
-    parts: list[str] = []
-    for key, worker in workers.items():
-        record = {"key": key, **worker}
-        net = data.calculate_net_salary(record)["net_payable"]
-        parts.append(f"{worker['full_name']} ({_format_amount(net)})")
-    return "Workers: " + ", ".join(parts)
+    return tool_list_workers("en")
 
 
 def tool_history(worker: str) -> str:

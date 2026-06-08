@@ -76,6 +76,11 @@ def _append_history(worker: dict[str, Any], action: str, details: str) -> None:
     )
 
 
+def _sync_final_salary(worker: dict[str, Any]) -> None:
+    """Update stored final_salary from current ledger (all-time net payable)."""
+    worker["final_salary"] = calculate_net_salary(worker)["net_payable"]
+
+
 def load_db() -> dict[str, Any]:
     """Load database from JSON file, creating empty structure if missing."""
     try:
@@ -88,6 +93,18 @@ def load_db() -> dict[str, Any]:
 
     if "workers" not in db:
         db["workers"] = {}
+
+    migrated = False
+    for worker in db["workers"].values():
+        if "penalties" not in worker:
+            worker["penalties"] = []
+            migrated = True
+        if "final_salary" not in worker:
+            _sync_final_salary(worker)
+            migrated = True
+    if migrated:
+        save_db(db)
+
     return db
 
 
@@ -158,6 +175,7 @@ def register_worker(
         "fixed_salary": float(fixed_salary),
         "bonuses": [],
         "advances": [],
+        "penalties": [],
         "payouts": [],
         "history": [],
     }
@@ -166,6 +184,7 @@ def register_worker(
         "register",
         f"Registered with fixed salary {fixed_salary:,.0f}",
     )
+    _sync_final_salary(worker)
     db["workers"][key] = worker
     save_db(db)
     return {"key": key, **worker}
@@ -211,6 +230,7 @@ def update_worker(key: str, **fields: Any) -> dict[str, Any]:
         raise ValueError("No valid fields to update.")
 
     _append_history(worker, "update", ", ".join(updates))
+    _sync_final_salary(worker)
     save_db(db)
     return {"key": resolved, **worker}
 
@@ -225,6 +245,31 @@ def add_bonus(key: str, amount: float, note: str = "") -> dict[str, Any]:
     entry = {"amount": float(amount), "note": note or "", "timestamp": _now_iso()}
     worker.setdefault("bonuses", []).append(entry)
     _append_history(worker, "add_bonus", f"+{amount:,.0f} ({note or 'no note'})")
+    _sync_final_salary(worker)
+    save_db(db)
+    return {"key": resolved, **worker}
+
+
+def add_penalty(key: str, amount: float, note: str = "") -> dict[str, Any]:
+    """Add a penalty entry for a worker."""
+    resolved = resolve_worker_key(key)
+    _validate_positive_amount(float(amount), "amount")
+
+    db = load_db()
+    worker = db["workers"][resolved]
+    entry = {"amount": float(amount), "note": note or "", "timestamp": _now_iso()}
+    worker.setdefault("penalties", []).append(entry)
+    _append_history(worker, "add_penalty", f"penalty {amount:,.0f} ({note or 'no note'})")
+    _sync_final_salary(worker)
+    save_db(db)
+    return {"key": resolved, **worker}
+
+
+def delete_worker(key: str) -> dict[str, Any]:
+    """Remove a worker from the database."""
+    resolved = resolve_worker_key(key)
+    db = load_db()
+    worker = db["workers"].pop(resolved)
     save_db(db)
     return {"key": resolved, **worker}
 
@@ -239,6 +284,7 @@ def add_advance(key: str, amount: float, note: str = "") -> dict[str, Any]:
     entry = {"amount": float(amount), "note": note or "", "timestamp": _now_iso()}
     worker.setdefault("advances", []).append(entry)
     _append_history(worker, "add_advance", f"-{amount:,.0f} ({note or 'no note'})")
+    _sync_final_salary(worker)
     save_db(db)
     return {"key": resolved, **worker}
 
@@ -261,6 +307,7 @@ def record_payout(key: str, amount: float, period: str | None = None) -> dict[st
     worker.setdefault("payouts", []).append(entry)
     period_label = period or "unspecified period"
     _append_history(worker, "payout", f"paid {amount:,.0f} for {period_label}")
+    _sync_final_salary(worker)
     save_db(db)
     return {"key": resolved, **worker}
 
@@ -281,8 +328,8 @@ def calculate_net_salary(
     """
     Calculate net payable salary breakdown.
 
-    net_payable = fixed_salary + bonuses - advances - payouts
-    When period is set, bonuses/advances/payouts are filtered to that month.
+    net_payable = fixed_salary + bonuses - advances - penalties - payouts
+    When period is set, bonuses/advances/penalties/payouts are filtered to that month.
     """
     if period is not None:
         _validate_period(period)
@@ -290,13 +337,15 @@ def calculate_net_salary(
     fixed = float(worker["fixed_salary"])
     bonuses = _sum_entries(worker.get("bonuses", []), period)
     advances = _sum_entries(worker.get("advances", []), period)
+    penalties = _sum_entries(worker.get("penalties", []), period)
     payouts = _sum_payouts(worker.get("payouts", []), period)
-    net = fixed + bonuses - advances - payouts
+    net = fixed + bonuses - advances - penalties - payouts
 
     return {
         "fixed_salary": fixed,
         "total_bonuses": bonuses,
         "total_advances": advances,
+        "total_penalties": penalties,
         "total_payouts": payouts,
         "net_payable": net,
         "period": period,

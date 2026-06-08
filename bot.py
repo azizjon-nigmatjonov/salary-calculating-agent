@@ -11,13 +11,21 @@ import os
 from datetime import datetime
 
 import certifi
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 from telegram.request import HTTPXRequest
 
 import agent
 import config
+import languages
 import transcriber
 
 logging.basicConfig(
@@ -27,24 +35,75 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-WELCOME_MESSAGE = (
-    "Hey! I'm your salary assistant. Just tell me what you need — register workers, "
-    "add bonuses or advances, calculate net salary, or check everyone's status. "
-    "Voice or text, your choice!"
-)
+ERROR_MESSAGES = {
+    "en": "Something went wrong on my end. Please try again in a moment.",
+    "ru": "Что-то пошло не так. Попробуйте ещё раз через минуту.",
+    "uz": "Nimadir xato bo'ldi. Birozdan keyin qayta urinib ko'ring.",
+}
 
-ERROR_MESSAGE = "Something went wrong on my end. Please try again in a moment."
+
+def _error_message(chat_id: int) -> str:
+    """Return localized error message."""
+    return ERROR_MESSAGES.get(languages.get_language(chat_id) or "en", ERROR_MESSAGES["en"])
+
+
+def _language_keyboard() -> InlineKeyboardMarkup:
+    """Build inline keyboard for language selection."""
+    buttons = [
+        InlineKeyboardButton(languages.BUTTON_LABELS[code], callback_data=f"lang_{code}")
+        for code in languages.SUPPORTED
+    ]
+    return InlineKeyboardMarkup([buttons])
+
+
+async def _ask_language(update: Update) -> None:
+    """Send language selection prompt with buttons."""
+    chat_id = update.effective_chat.id
+    languages.start_language_selection(chat_id)
+    await update.message.reply_text(
+        languages.t(chat_id, "choose_language", lang="en"),
+        reply_markup=_language_keyboard(),
+    )
+
+
+async def _confirm_language(chat_id: int, language: str, message) -> None:
+    """Save language and send welcome message."""
+    languages.set_language(chat_id, language)
+    await message.reply_text(languages.t(chat_id, "language_set", lang=language))
+    await message.reply_text(languages.t(chat_id, "welcome", lang=language))
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Welcome new users and reset conversation memory."""
+    """Reset session and ask user to choose language."""
     try:
         chat_id = update.effective_chat.id
         agent.clear_history(chat_id)
-        await update.message.reply_text(WELCOME_MESSAGE)
+        languages.clear_language(chat_id)
+        await _ask_language(update)
     except Exception:
         logger.exception("handle_start failed at %s", datetime.now().isoformat())
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(_error_message(update.effective_chat.id))
+
+
+async def handle_language_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle inline language button press."""
+    try:
+        query = update.callback_query
+        await query.answer()
+        chat_id = query.message.chat_id
+        language = query.data.removeprefix("lang_")
+        if language not in languages.SUPPORTED:
+            return
+        agent.clear_history(chat_id)
+        await _confirm_language(chat_id, language, query.message)
+    except Exception:
+        logger.exception("handle_language_callback failed at %s", datetime.now().isoformat())
+        if update.callback_query:
+            await update.callback_query.message.reply_text(
+                _error_message(update.callback_query.message.chat_id)
+            )
 
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -52,22 +111,52 @@ async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         chat_id = update.effective_chat.id
         agent.clear_history(chat_id)
-        await update.message.reply_text("Fresh start! What do you need?")
+        await update.message.reply_text(languages.t(chat_id, "reset"))
     except Exception:
         logger.exception("handle_reset failed at %s", datetime.now().isoformat())
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(_error_message(update.effective_chat.id))
+
+
+async def _handle_language_text(chat_id: int, text: str, message) -> bool:
+    """
+    Handle text reply while awaiting language selection.
+
+    Returns True if handled.
+    """
+    if not languages.is_awaiting_language(chat_id):
+        return False
+
+    language = languages.parse_language_choice(text)
+    if language is None:
+        await message.reply_text(
+            languages.t(chat_id, "invalid_language", lang="en"),
+            reply_markup=_language_keyboard(),
+        )
+        return True
+
+    await _confirm_language(chat_id, language, message)
+    return True
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
     try:
         chat_id = update.effective_chat.id
+        text = update.message.text
+
+        if await _handle_language_text(chat_id, text, update.message):
+            return
+
+        if languages.is_awaiting_language(chat_id):
+            await _ask_language(update)
+            return
+
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-        reply = agent.process_message(chat_id, update.message.text)
+        reply = agent.process_message(chat_id, text)
         await update.message.reply_text(reply)
     except Exception:
         logger.exception("handle_text failed at %s", datetime.now().isoformat())
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(_error_message(update.effective_chat.id))
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -75,6 +164,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     ogg_path = ""
     try:
         chat_id = update.effective_chat.id
+
+        if languages.is_awaiting_language(chat_id):
+            lang = "en"
+            await update.message.reply_text(
+                languages.t(chat_id, "invalid_language", lang=lang),
+                reply_markup=_language_keyboard(),
+            )
+            return
+
         voice = update.message.voice
         file = await context.bot.get_file(voice.file_id)
 
@@ -98,7 +196,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(str(exc))
     except Exception:
         logger.exception("handle_voice failed at %s", datetime.now().isoformat())
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(_error_message(update.effective_chat.id))
     finally:
         if ogg_path and os.path.exists(ogg_path):
             try:
@@ -124,6 +222,7 @@ def main() -> None:
     )
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("reset", handle_reset))
+    app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^lang_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 

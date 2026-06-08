@@ -29,6 +29,7 @@ class DataLayerTests(unittest.TestCase):
         )
         self.assertEqual(worker["key"], "ali_karimov")
         self.assertEqual(worker["fixed_salary"], 5_000_000)
+        self.assertEqual(worker["final_salary"], 5_000_000)
 
         fetched = data.get_worker("ali_karimov")
         assert fetched is not None
@@ -53,6 +54,7 @@ class DataLayerTests(unittest.TestCase):
         self.assertEqual(breakdown["total_advances"], 300_000)
         self.assertEqual(breakdown["total_payouts"], 1_000_000)
         self.assertEqual(breakdown["net_payable"], 1_200_000)
+        self.assertEqual(worker["final_salary"], 1_200_000)
 
     def test_period_filtering(self) -> None:
         data.register_worker("Kamol", "2024-01-01", "1992-06-01", 3_000_000)

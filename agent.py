@@ -10,7 +10,11 @@ from typing import Any
 import ollama
 
 import config
+import languages
+import registration
 import tools
+import uzbek_commands
+import uzbek_commands
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +24,7 @@ INTENT_SYSTEM_PROMPT = """You are a salary management AI assistant. Your job is 
 
 Analyze the user message and return ONLY valid JSON:
 {
-  "action": "register" | "update" | "add_bonus" | "add_advance" | "payout" | "calculate" | "get" | "list" | "history" | "chat",
+  "action": "register" | "update" | "add_bonus" | "add_advance" | "add_penalty" | "delete_worker" | "payout" | "calculate" | "get" | "list" | "history" | "chat",
   "worker": "name slug in lowercase or null",
   "full_name": "string or null",
   "job_started_date": "YYYY-MM-DD or null",
@@ -38,6 +42,13 @@ Infer missing worker or amount from recent conversation context when the user sa
 
 Examples:
 "Register Ali Karimov, started 2024-03-01, born 1990-05-15, salary 5 million" → {"action":"register","worker":null,"full_name":"Ali Karimov","job_started_date":"2024-03-01","birthdate":"1990-05-15","fixed_salary":5000000,"amount":null,"note":null,"period":null,"language":"en"}
+"Add a new worker" → {"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"en"}
+"Register new worker, Bobur, age 22, salary 5 mln" → {"action":"register","worker":null,"full_name":"Bobur","job_started_date":null,"birthdate":null,"fixed_salary":5000000,"amount":null,"note":null,"period":null,"language":"en"}
+"Yangi ishchi qo'sh" → {"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
+"Yangi ishchi qosh" → {"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
+"Ishchini o'zchirib tashla" → {"action":"delete_worker","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
+"avans berdim" → {"action":"add_advance","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
+"Shtraf soldim" → {"action":"add_penalty","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
 "500 ming bonus qo'sh Aliga" → {"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"period":null,"language":"uz"}
 "Добавь аванс 200000 Бобуру" → {"action":"add_advance","worker":"bobur","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":200000,"note":null,"period":null,"language":"ru"}
 "Calculate Kamol's salary for March 2025" → {"action":"calculate","worker":"kamol","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":"2025-03","language":"en"}
@@ -77,6 +88,18 @@ def add_to_history(chat_id: int, role: str, content: str) -> None:
 def clear_history(chat_id: int) -> None:
     """Reset conversation for this chat."""
     conversation_history[chat_id] = []
+    registration.clear_session(chat_id)
+    uzbek_commands.clear_session(chat_id)
+
+
+def get_chat_language(chat_id: int, user_text: str = "") -> str:
+    """Return preferred language for chat, with fallbacks."""
+    saved = languages.get_language(chat_id)
+    if saved:
+        return saved
+    if user_text:
+        return registration.detect_language(user_text)
+    return "en"
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -162,6 +185,16 @@ def _dispatch_tool(intent: dict[str, Any]) -> str | None:
             return "Need a worker name and advance amount."
         return tools.tool_add_advance(worker, float(amount), note)
 
+    if action == "add_penalty":
+        if not worker or amount is None:
+            return "Need a worker name and penalty amount."
+        return tools.tool_add_penalty(worker, float(amount), note)
+
+    if action == "delete_worker":
+        if not worker:
+            return "Which worker should be removed?"
+        return tools.tool_delete_worker(worker)
+
     if action == "payout":
         if not worker or amount is None:
             return "Need a worker name and payout amount."
@@ -223,20 +256,71 @@ Rules:
     return response["message"]["content"].strip()
 
 
+def _offline_fallback(chat_id: int, tool_result: str | None) -> str:
+    """Return a helpful reply when Ollama is unavailable."""
+    if tool_result:
+        return tool_result
+    lang = languages.get_language(chat_id) or "en"
+    messages = {
+        "en": "Sorry, I had trouble processing that. Please try again.",
+        "ru": "Не удалось обработать запрос. Попробуйте ещё раз.",
+        "uz": "So'rovni qayta ishlashda muammo bo'ldi. Qayta urinib ko'ring.",
+    }
+    return messages.get(lang, messages["en"])
+
+
 def process_message(chat_id: int, user_text: str) -> str:
     """Process user message through two-step pipeline and return assistant reply."""
+    user_text = registration.normalize_user_text(user_text)
+    wizard_reply = registration.handle_message(chat_id, user_text)
+    if wizard_reply is not None:
+        add_to_history(chat_id, "user", user_text)
+        add_to_history(chat_id, "assistant", wizard_reply)
+        return wizard_reply
+
+    uz_reply = uzbek_commands.handle_message(chat_id, user_text)
+    if uz_reply is not None:
+        add_to_history(chat_id, "user", user_text)
+        add_to_history(chat_id, "assistant", uz_reply)
+        return uz_reply
+
+    language = (
+        languages.get_language(chat_id) or registration.detect_language(user_text)
+    )
+
+    uz_start = uzbek_commands.try_start(chat_id, user_text, language)
+    if uz_start:
+        add_to_history(chat_id, "user", user_text)
+        add_to_history(chat_id, "assistant", uz_start)
+        return uz_start
+
+    if registration.wants_to_start(user_text):
+        quick_intent = dict(DEFAULT_INTENT)
+        quick_intent.update({"action": "register", "language": language})
+        wizard_start = registration.try_start_from_intent(
+            chat_id, user_text, quick_intent
+        )
+        if wizard_start is not None:
+            add_to_history(chat_id, "user", user_text)
+            add_to_history(chat_id, "assistant", wizard_start)
+            return wizard_start
+
     intent = _extract_intent(chat_id, user_text)
-    language = intent.get("language") or "en"
+    language = languages.get_language(chat_id) or intent.get("language") or language
+
+    wizard_start = registration.try_start_from_intent(chat_id, user_text, intent)
+    if wizard_start is not None:
+        add_to_history(chat_id, "user", user_text)
+        add_to_history(chat_id, "assistant", wizard_start)
+        return wizard_start
+
     tool_result = _dispatch_tool(intent)
 
     try:
         reply = _generate_reply(chat_id, user_text, language, tool_result)
     except Exception as exc:
         logger.exception("Reply generation failed: %s", exc)
-        if tool_result:
-            reply = tool_result
-        else:
-            reply = "Sorry, I had trouble processing that. Please try again."
+        reply = _offline_fallback(chat_id, tool_result)
 
     add_to_history(chat_id, "user", user_text)
     add_to_history(chat_id, "assistant", reply)

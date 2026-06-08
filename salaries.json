@@ -1,3 +1,159 @@
 {
-  "workers": {}
+  "workers": {
+    "bobur_karimov": {
+      "full_name": "Bobur Karimov",
+      "job_started_date": "2024-03-01",
+      "birthdate": "2004-01-01",
+      "fixed_salary": 5000000.0,
+      "bonuses": [],
+      "advances": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5,000,000",
+          "timestamp": "2026-06-08T12:55:17"
+        }
+      ],
+      "final_salary": 5000000.0,
+      "penalties": []
+    },
+    "bobur_sunnatov": {
+      "full_name": "Bobur Sunnatov",
+      "job_started_date": "2026-02-01",
+      "birthdate": "2001-01-01",
+      "fixed_salary": 5000000.0,
+      "bonuses": [],
+      "advances": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5,000,000",
+          "timestamp": "2026-06-08T12:57:28"
+        }
+      ],
+      "final_salary": 5000000.0,
+      "penalties": []
+    },
+    "jamshid_ziyoxonov": {
+      "full_name": "Jamshid Ziyoxonov",
+      "job_started_date": "2025-01-02",
+      "birthdate": "1992-01-01",
+      "fixed_salary": 5.0,
+      "bonuses": [],
+      "advances": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5",
+          "timestamp": "2026-06-08T13:11:19"
+        }
+      ],
+      "final_salary": 5.0,
+      "penalties": []
+    },
+    "جمشت_زیاد_خانم": {
+      "full_name": "جمشت زیاد خانم",
+      "job_started_date": "2026-02-22",
+      "birthdate": "2001-01-01",
+      "fixed_salary": 5.0,
+      "bonuses": [],
+      "advances": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5",
+          "timestamp": "2026-06-08T13:25:37"
+        }
+      ],
+      "final_salary": 5.0,
+      "penalties": []
+    },
+    "qosh": {
+      "full_name": "Qosh",
+      "job_started_date": "2026-01-01",
+      "birthdate": "2002-01-01",
+      "fixed_salary": 5000000.0,
+      "bonuses": [],
+      "advances": [],
+      "penalties": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5,000,000",
+          "timestamp": "2026-06-08T13:41:39"
+        }
+      ],
+      "final_salary": 5000000.0
+    },
+    "jamshid": {
+      "full_name": "Jamshid",
+      "job_started_date": "2025-02-02",
+      "birthdate": "2003-01-01",
+      "fixed_salary": 6000000.0,
+      "bonuses": [],
+      "advances": [],
+      "penalties": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 6,000,000",
+          "timestamp": "2026-06-08T13:42:12"
+        }
+      ],
+      "final_salary": 6000000.0
+    },
+    "abdullah_zeiss": {
+      "full_name": "Abdullah Zeiss",
+      "job_started_date": "2025-02-02",
+      "birthdate": "2002-01-01",
+      "fixed_salary": 5.0,
+      "bonuses": [],
+      "advances": [],
+      "penalties": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5",
+          "timestamp": "2026-06-08T14:13:28"
+        }
+      ],
+      "final_salary": 5.0
+    },
+    "manapov": {
+      "full_name": "Manapov",
+      "job_started_date": "2026-02-02",
+      "birthdate": "2002-01-01",
+      "fixed_salary": 6000000.0,
+      "bonuses": [],
+      "advances": [
+        {
+          "amount": 3000000.0,
+          "note": "avans berdim",
+          "timestamp": "2026-06-08T14:17:14"
+        }
+      ],
+      "penalties": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 6,000,000",
+          "timestamp": "2026-06-08T14:16:36"
+        },
+        {
+          "action": "add_advance",
+          "details": "-3,000,000 (avans berdim)",
+          "timestamp": "2026-06-08T14:17:14"
+        }
+      ],
+      "final_salary": 3000000.0
+    }
+  }
 }

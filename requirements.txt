@@ -1,5 +1,6 @@
 python-telegram-bot>=22.0
 openai-whisper
+imageio-ffmpeg
 ollama
 python-dotenv
 certifi
