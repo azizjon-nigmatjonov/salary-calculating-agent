@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 import data
 
 
@@ -48,26 +50,36 @@ def tool_update_worker(worker: str, **fields) -> str:
         return str(exc)
 
 
-def tool_add_bonus(worker: str, amount: float, note: str = "") -> str:
+def _date_label(for_date: str | None) -> str:
+    return f" for {for_date}" if for_date else ""
+
+
+def tool_add_bonus(
+    worker: str, amount: float, note: str = "", *, for_date: str | None = None
+) -> str:
     """Add bonus for a worker. Returns human-readable result."""
     try:
-        record = data.add_bonus(worker, amount, note)
+        record = data.add_bonus(worker, amount, note, for_date=for_date)
         breakdown = data.calculate_net_salary(record)
         return (
-            f"Added bonus {_format_amount(amount)} to {record['full_name']}. "
+            f"Added bonus {_format_amount(amount)} to {record['full_name']}"
+            f"{_date_label(for_date)}. "
             f"Net payable (all time): {_format_amount(breakdown['net_payable'])}."
         )
     except ValueError as exc:
         return str(exc)
 
 
-def tool_add_penalty(worker: str, amount: float, note: str = "") -> str:
+def tool_add_penalty(
+    worker: str, amount: float, note: str = "", *, for_date: str | None = None
+) -> str:
     """Add penalty for a worker. Returns human-readable result."""
     try:
-        record = data.add_penalty(worker, amount, note)
+        record = data.add_penalty(worker, amount, note, for_date=for_date)
         final = record.get("final_salary", data.calculate_net_salary(record)["net_payable"])
         return (
-            f"Added penalty {_format_amount(amount)} for {record['full_name']}. "
+            f"Added penalty {_format_amount(amount)} for {record['full_name']}"
+            f"{_date_label(for_date)}. "
             f"Final salary: {_format_amount(final)}."
         )
     except ValueError as exc:
@@ -88,28 +100,37 @@ def tool_delete_worker(worker: str) -> str:
         return str(exc)
 
 
-def tool_add_advance(worker: str, amount: float, note: str = "") -> str:
+def tool_add_advance(
+    worker: str, amount: float, note: str = "", *, for_date: str | None = None
+) -> str:
     """Add advance for a worker. Returns human-readable result."""
     try:
-        record = data.add_advance(worker, amount, note)
+        record = data.add_advance(worker, amount, note, for_date=for_date)
         breakdown = data.calculate_net_salary(record)
         return (
-            f"Recorded advance {_format_amount(amount)} for {record['full_name']}. "
+            f"Recorded advance {_format_amount(amount)} for {record['full_name']}"
+            f"{_date_label(for_date)}. "
             f"Net payable (all time): {_format_amount(breakdown['net_payable'])}."
         )
     except ValueError as exc:
         return str(exc)
 
 
-def tool_record_payout(worker: str, amount: float, period: str | None = None) -> str:
+def tool_record_payout(
+    worker: str,
+    amount: float,
+    period: str | None = None,
+    *,
+    for_date: str | None = None,
+) -> str:
     """Record salary payout. Returns human-readable result."""
     try:
-        record = data.record_payout(worker, amount, period)
+        record = data.record_payout(worker, amount, period, for_date=for_date)
         breakdown = data.calculate_net_salary(record)
-        period_text = _period_label(period)
+        when = for_date or _period_label(period)
         return (
             f"Recorded payout {_format_amount(amount)} for {record['full_name']} "
-            f"({period_text}). Net payable (all time): "
+            f"({when}). Net payable (all time): "
             f"{_format_amount(breakdown['net_payable'])}."
         )
     except ValueError as exc:
@@ -156,45 +177,78 @@ def tool_get_worker(worker: str) -> str:
         return str(exc)
 
 
-def _worker_balances() -> list[tuple[str, float]]:
-    """Return (full_name, net_payable) for each worker."""
-    workers = data.list_workers()
-    rows: list[tuple[str, float]] = []
-    for key, worker in workers.items():
-        final = worker.get(
-            "final_salary",
-            data.calculate_net_salary({"key": key, **worker})["net_payable"],
-        )
-        rows.append((worker["full_name"], final))
-    return rows
+_LIST_LABELS: dict[str, dict[str, str]] = {
+    "en": {
+        "name": "Name",
+        "age": "Age",
+        "salary": "Salary",
+        "header": "Workers",
+        "empty": "No workers registered yet.",
+    },
+    "uz": {
+        "name": "Ism",
+        "age": "Yosh",
+        "salary": "Maosh",
+        "header": "Ishchilar",
+        "empty": "Hozircha ro'yxatdan o'tgan ishchi yo'q.",
+    },
+    "ru": {
+        "name": "Имя",
+        "age": "Возраст",
+        "salary": "Зарплата",
+        "header": "Работники",
+        "empty": "Пока нет зарегистрированных работников.",
+    },
+}
+
+
+def _age_from_birthdate(birthdate: str) -> int | None:
+    """Compute age in years from YYYY-MM-DD birthdate."""
+    try:
+        born = datetime.strptime(birthdate, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    today = date.today()
+    age = today.year - born.year
+    if (today.month, today.day) < (born.month, born.day):
+        age -= 1
+    return age
+
+
+def _worker_net_payable(key: str, worker: dict) -> float:
+    return worker.get(
+        "final_salary",
+        data.calculate_net_salary({"key": key, **worker})["net_payable"],
+    )
+
+
+def _format_worker_card(key: str, worker: dict, labels: dict[str, str]) -> str:
+    """Format one worker entry for the list view."""
+    age = _age_from_birthdate(worker.get("birthdate", ""))
+    age_str = str(age) if age is not None else "—"
+    salary = _format_amount(_worker_net_payable(key, worker))
+    return (
+        f"{labels['name']}: {worker['full_name']}\n"
+        f"{labels['age']}: {age_str}\n"
+        f"{labels['salary']}: {salary}"
+    )
 
 
 def tool_list_workers(language: str = "en") -> str:
-    """List all workers with count and net payable balances."""
-    rows = _worker_balances()
-    if not rows:
-        empty = {
-            "en": "No workers registered yet.",
-            "ru": "Пока нет зарегистрированных работников.",
-            "uz": "Hozircha ro'yxatdan o'tgan ishchi yo'q.",
-        }
-        return empty.get(language, empty["en"])
+    """List all workers with name, age, and net salary per card."""
+    labels = _LIST_LABELS.get(language, _LIST_LABELS["en"])
+    workers = data.list_workers()
+    if not workers:
+        return labels["empty"]
 
-    count = len(rows)
-    if language == "uz":
-        lines = [f"Jami ishchilar soni: {count}", ""]
-        for index, (name, final) in enumerate(rows, start=1):
-            lines.append(f"{index}. {name} — {_format_amount(final)}")
-        return "\n".join(lines)
-
-    if language == "ru":
-        lines = [f"Всего работников: {count}", ""]
-        for index, (name, final) in enumerate(rows, start=1):
-            lines.append(f"{index}. {name} — {_format_amount(final)}")
-        return "\n".join(lines)
-
-    parts = [f"{name} ({_format_amount(final)})" for name, final in rows]
-    return f"Workers ({count}): " + ", ".join(parts)
+    cards = [
+        _format_worker_card(key, worker, labels)
+        for key, worker in sorted(
+            workers.items(), key=lambda item: item[1]["full_name"].lower()
+        )
+    ]
+    header = f"{labels['header']} ({len(cards)})"
+    return header + "\n\n" + "\n\n------\n\n".join(cards)
 
 
 def tool_list() -> str:

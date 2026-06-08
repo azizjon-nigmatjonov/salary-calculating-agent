@@ -11,6 +11,7 @@ from typing import Any
 import data
 import languages
 import registration
+import text_match
 import tools
 
 CSV_FILE = Path(__file__).resolve().parent / "uzbek commands.csv"
@@ -190,12 +191,26 @@ def match_command(text: str) -> UzbekCommand | None:
             or phrase_norm in norm
             or loose == phrase_loose
             or phrase_loose in loose
+            or text_match.fuzzy_equals(text, phrase)
         ):
             return UzbekCommand(
                 phrase=phrase,
                 means="",
                 description="",
                 action=action,
+            )
+    all_phrases = [cmd.phrase for cmd in COMMANDS] + list(PHRASE_ACTIONS.keys())
+    fuzzy_hit = text_match.fuzzy_match_phrase(text, all_phrases)
+    if fuzzy_hit:
+        for cmd in COMMANDS:
+            if text_match.fuzzy_equals(fuzzy_hit, cmd.phrase):
+                return cmd
+        if fuzzy_hit in PHRASE_ACTIONS:
+            return UzbekCommand(
+                phrase=fuzzy_hit,
+                means="",
+                description="",
+                action=PHRASE_ACTIONS[fuzzy_hit],
             )
     return None
 

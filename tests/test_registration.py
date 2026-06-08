@@ -58,6 +58,15 @@ class RegistrationWizardTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertTrue(registration.wants_to_start(phrase))
 
+    def test_uzbek_typo_yengi_ishchi(self) -> None:
+        self.assertTrue(registration.wants_to_start("yengi ishchi"))
+        reply = registration.try_start_from_intent(
+            999, "yengi ishchi", {"action": "chat", "language": "uz"}
+        )
+        self.assertIsNotNone(reply)
+        assert reply is not None
+        self.assertIn("ism", reply.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

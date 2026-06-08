@@ -100,6 +100,17 @@ class DataLayerTests(unittest.TestCase):
         history = data.get_history("test_worker", limit=10)
         self.assertEqual(len(history), 10)
 
+    def test_for_date_period_filtering(self) -> None:
+        data.register_worker("Sardor", "2024-01-01", "1990-01-01", 3_000_000)
+        data.add_bonus("sardor", 100_000, "jan", for_date="2026-01-15")
+        data.add_bonus("sardor", 200_000, "feb", for_date="2026-02-15")
+
+        worker = data.get_worker("sardor")
+        assert worker is not None
+        feb = data.calculate_net_salary(worker, period="2026-02")
+        self.assertEqual(feb["total_bonuses"], 200_000)
+        self.assertEqual(feb["net_payable"], 3_200_000)
+
 
 if __name__ == "__main__":
     unittest.main()

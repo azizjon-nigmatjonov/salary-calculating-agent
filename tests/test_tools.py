@@ -30,7 +30,13 @@ class ToolsTests(unittest.TestCase):
         )
         self.assertIn("Registered Ali Karimov", result)
         listed = tools.tool_list()
-        self.assertIn("Ali Karimov", listed)
+        self.assertIn("Name: Ali Karimov", listed)
+        self.assertIn("Age:", listed)
+        self.assertIn("Salary: 5,000,000", listed)
+
+        tools.tool_register_worker("Bobur Karimov", "2024-01-01", "1988-01-01", 3_000_000)
+        listed_multi = tools.tool_list()
+        self.assertIn("------", listed_multi)
 
     def test_calculate_salary_string(self) -> None:
         tools.tool_register_worker("Bobur", "2024-01-01", "1988-01-01", 2_000_000)

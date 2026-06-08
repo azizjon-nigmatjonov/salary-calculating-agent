@@ -61,12 +61,13 @@ def _get_model():
     return _model
 
 
-def transcribe_audio(ogg_path: str) -> str:
+def transcribe_audio(ogg_path: str, language: str | None = None) -> str:
     """
     Transcribe an OGG audio file to text.
 
     Converts OGG to 16kHz mono WAV via ffmpeg, loads audio in Python
-    (so Whisper does not need ffmpeg on PATH), transcribes with auto language detect.
+    (so Whisper does not need ffmpeg on PATH). Pass language (en/ru/uz) when
+    known — otherwise Whisper auto-detects and may confuse Uzbek with Turkish.
     """
     ffmpeg = _get_ffmpeg_path()
     wav_path = ogg_path.rsplit(".", 1)[0] + ".wav"
@@ -78,7 +79,10 @@ def transcribe_audio(ogg_path: str) -> str:
             capture_output=True,
         )
         audio = _load_wav_as_float32(wav_path)
-        result = _get_model().transcribe(audio, fp16=False)
+        options: dict = {"fp16": False}
+        if language in ("en", "ru", "uz"):
+            options["language"] = language
+        result = _get_model().transcribe(audio, **options)
         text = result["text"].strip()
         if not text:
             raise RuntimeError("Could not understand the voice message. Please try again.")

@@ -47,11 +47,36 @@ def _timestamp_in_period(timestamp: str, period: str) -> bool:
     return dt.strftime("%Y-%m") == period
 
 
+def _entry_in_period(entry: dict[str, Any], period: str | None) -> bool:
+    """Return True if ledger entry belongs to period (uses for_date when set)."""
+    if period is None:
+        return True
+    for_date = entry.get("for_date")
+    if for_date:
+        return str(for_date)[:7] == period
+    return _timestamp_in_period(entry["timestamp"], period)
+
+
+def _make_ledger_entry(
+    amount: float, note: str = "", *, for_date: str | None = None
+) -> dict[str, Any]:
+    """Create a bonus/advance/penalty entry with optional applied date."""
+    entry: dict[str, Any] = {
+        "amount": float(amount),
+        "note": note or "",
+        "timestamp": _now_iso(),
+    }
+    if for_date is not None:
+        _validate_date(for_date, "for_date")
+        entry["for_date"] = for_date
+    return entry
+
+
 def _sum_entries(entries: list[dict[str, Any]], period: str | None) -> float:
     """Sum entry amounts, optionally filtered by period."""
     total = 0.0
     for entry in entries:
-        if period is None or _timestamp_in_period(entry["timestamp"], period):
+        if _entry_in_period(entry, period):
             total += float(entry["amount"])
     return total
 
@@ -235,31 +260,41 @@ def update_worker(key: str, **fields: Any) -> dict[str, Any]:
     return {"key": resolved, **worker}
 
 
-def add_bonus(key: str, amount: float, note: str = "") -> dict[str, Any]:
+def add_bonus(
+    key: str, amount: float, note: str = "", *, for_date: str | None = None
+) -> dict[str, Any]:
     """Add a bonus entry for a worker."""
     resolved = resolve_worker_key(key)
     _validate_positive_amount(float(amount), "amount")
 
     db = load_db()
     worker = db["workers"][resolved]
-    entry = {"amount": float(amount), "note": note or "", "timestamp": _now_iso()}
+    entry = _make_ledger_entry(amount, note, for_date=for_date)
     worker.setdefault("bonuses", []).append(entry)
-    _append_history(worker, "add_bonus", f"+{amount:,.0f} ({note or 'no note'})")
+    date_label = f" for {for_date}" if for_date else ""
+    _append_history(
+        worker, "add_bonus", f"+{amount:,.0f}{date_label} ({note or 'no note'})"
+    )
     _sync_final_salary(worker)
     save_db(db)
     return {"key": resolved, **worker}
 
 
-def add_penalty(key: str, amount: float, note: str = "") -> dict[str, Any]:
+def add_penalty(
+    key: str, amount: float, note: str = "", *, for_date: str | None = None
+) -> dict[str, Any]:
     """Add a penalty entry for a worker."""
     resolved = resolve_worker_key(key)
     _validate_positive_amount(float(amount), "amount")
 
     db = load_db()
     worker = db["workers"][resolved]
-    entry = {"amount": float(amount), "note": note or "", "timestamp": _now_iso()}
+    entry = _make_ledger_entry(amount, note, for_date=for_date)
     worker.setdefault("penalties", []).append(entry)
-    _append_history(worker, "add_penalty", f"penalty {amount:,.0f} ({note or 'no note'})")
+    date_label = f" for {for_date}" if for_date else ""
+    _append_history(
+        worker, "add_penalty", f"penalty {amount:,.0f}{date_label} ({note or 'no note'})"
+    )
     _sync_final_salary(worker)
     save_db(db)
     return {"key": resolved, **worker}
@@ -274,25 +309,40 @@ def delete_worker(key: str) -> dict[str, Any]:
     return {"key": resolved, **worker}
 
 
-def add_advance(key: str, amount: float, note: str = "") -> dict[str, Any]:
+def add_advance(
+    key: str, amount: float, note: str = "", *, for_date: str | None = None
+) -> dict[str, Any]:
     """Add an advance entry for a worker."""
     resolved = resolve_worker_key(key)
     _validate_positive_amount(float(amount), "amount")
 
     db = load_db()
     worker = db["workers"][resolved]
-    entry = {"amount": float(amount), "note": note or "", "timestamp": _now_iso()}
+    entry = _make_ledger_entry(amount, note, for_date=for_date)
     worker.setdefault("advances", []).append(entry)
-    _append_history(worker, "add_advance", f"-{amount:,.0f} ({note or 'no note'})")
+    date_label = f" for {for_date}" if for_date else ""
+    _append_history(
+        worker, "add_advance", f"-{amount:,.0f}{date_label} ({note or 'no note'})"
+    )
     _sync_final_salary(worker)
     save_db(db)
     return {"key": resolved, **worker}
 
 
-def record_payout(key: str, amount: float, period: str | None = None) -> dict[str, Any]:
+def record_payout(
+    key: str,
+    amount: float,
+    period: str | None = None,
+    *,
+    for_date: str | None = None,
+) -> dict[str, Any]:
     """Record a salary payout for a worker."""
     resolved = resolve_worker_key(key)
     _validate_positive_amount(float(amount), "amount")
+    if for_date is not None:
+        _validate_date(for_date, "for_date")
+        if period is None:
+            period = for_date[:7]
     if period is not None:
         _validate_period(period)
 
@@ -302,6 +352,8 @@ def record_payout(key: str, amount: float, period: str | None = None) -> dict[st
         "amount": float(amount),
         "timestamp": _now_iso(),
     }
+    if for_date:
+        entry["for_date"] = for_date
     if period:
         entry["period"] = period
     worker.setdefault("payouts", []).append(entry)

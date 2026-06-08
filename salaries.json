@@ -154,6 +154,24 @@
         }
       ],
       "final_salary": 3000000.0
+    },
+    "ali": {
+      "full_name": "Ali",
+      "job_started_date": "2026-01-06",
+      "birthdate": "1998-01-01",
+      "fixed_salary": 5.0,
+      "bonuses": [],
+      "advances": [],
+      "penalties": [],
+      "payouts": [],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5",
+          "timestamp": "2026-06-08T15:41:31"
+        }
+      ],
+      "final_salary": 5.0
     }
   }
 }

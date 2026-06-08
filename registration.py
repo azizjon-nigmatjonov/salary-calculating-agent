@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+import amount_parse
+import date_parse
 import languages
+import text_match
 import tools
 
 STEPS = ("full_name", "birthdate", "job_started_date", "fixed_salary")
@@ -39,7 +42,7 @@ PROMPTS: dict[str, dict[str, str]] = {
         "success_prefix": "Done!",
         "invalid_birthdate": "Please enter a valid age (16–100) or birthdate (YYYY-MM-DD).",
         "invalid_date": "Please enter a valid date (YYYY-MM-DD) or say 'today'.",
-        "invalid_salary": "Please enter a valid salary amount (e.g. 5000000 or 5 mln).",
+        "invalid_salary": "Please enter a valid salary amount (e.g. 5000000, 5 mln, or six million).",
         "invalid_name": "Please enter the worker's full name.",
     },
     "ru": {
@@ -51,7 +54,7 @@ PROMPTS: dict[str, dict[str, str]] = {
         "success_prefix": "Готово!",
         "invalid_birthdate": "Введите возраст (16–100) или дату рождения (ГГГГ-ММ-ДД).",
         "invalid_date": "Введите дату (ГГГГ-ММ-ДД) или напишите 'сегодня'.",
-        "invalid_salary": "Введите сумму зарплаты (напр. 5000000 или 5 млн).",
+        "invalid_salary": "Введите сумму зарплаты (напр. 5000000, 5 млн или шесть миллионов).",
         "invalid_name": "Введите полное имя работника.",
     },
     "uz": {
@@ -63,7 +66,7 @@ PROMPTS: dict[str, dict[str, str]] = {
         "success_prefix": "Tayyor!",
         "invalid_birthdate": "Yosh (16–100) yoki tug'ilgan sana (YYYY-MM-DD) kiriting.",
         "invalid_date": "Sana (YYYY-MM-DD) kiriting yoki 'bugun' deb yozing.",
-        "invalid_salary": "Maosh miqdorini kiriting (masalan, 5000000 yoki 5 mln).",
+        "invalid_salary": "Maosh miqdorini kiriting (masalan, 5000000, 5 mln yoki olti million).",
         "invalid_name": "Ishchining to'liq ismini kiriting.",
     },
 }
@@ -120,7 +123,7 @@ def detect_language(text: str) -> str:
 
 def normalize_user_text(text: str) -> str:
     """Fix common speech-to-text misheard phrases before command matching."""
-    normalized = text.strip().rstrip(".,!?")
+    normalized = text_match.normalize_typos(text.strip().rstrip(".,!?"))
     for pattern, replacement in _VOICE_FIXES:
         if pattern.search(normalized):
             return pattern.sub(replacement, normalized)
@@ -129,36 +132,15 @@ def normalize_user_text(text: str) -> str:
 
 def wants_to_start(text: str) -> bool:
     """Return True if user wants to begin registering a new worker."""
-    return bool(START_PATTERNS.search(normalize_user_text(text)))
-
-
-def _to_float(number: str) -> float | None:
-    """Safely parse a numeric string."""
-    try:
-        value = float(number)
-    except ValueError:
-        return None
-    return value if value > 0 else None
+    normalized = normalize_user_text(text)
+    if START_PATTERNS.search(normalized):
+        return True
+    return text_match.fuzzy_match_phrase(normalized, text_match.REGISTER_PHRASES) is not None
 
 
 def parse_salary(text: str) -> float | None:
-    """Parse salary from natural language (mln, million, ming, plain number)."""
-    lower = text.lower().replace(",", "").replace(" ", "")
-    number = r"(\d+(?:\.\d+)?)"
-    mln_match = re.search(rf"{number}\s*(mln|million|млн|миллион)", lower)
-    if mln_match:
-        base = _to_float(mln_match.group(1))
-        return base * 1_000_000 if base is not None else None
-    ming_match = re.search(rf"{number}\s*(ming|минг|тыс)", lower)
-    if ming_match:
-        base = _to_float(ming_match.group(1))
-        return base * 1_000 if base is not None else None
-    num_match = re.search(
-        rf"{number}", lower.replace("som", "").replace("сум", "")
-    )
-    if num_match:
-        return _to_float(num_match.group(1))
-    return None
+    """Parse salary from digits or spoken numbers (e.g. six million, 5 mln)."""
+    return amount_parse.parse_amount(text)
 
 
 def parse_birthdate(text: str) -> str | None:
@@ -166,6 +148,9 @@ def parse_birthdate(text: str) -> str | None:
     text = text.strip()
     if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
         return text
+    natural = date_parse.extract_date_from_text(text)
+    if natural:
+        return natural
     age_match = re.search(r"\b(\d{1,3})\b", text)
     if age_match:
         age = int(age_match.group(1))
@@ -182,7 +167,7 @@ def parse_date(text: str) -> str | None:
         return text
     if text in ("today", "bugun", "сегодня", "hozir"):
         return datetime.now().strftime("%Y-%m-%d")
-    return None
+    return date_parse.extract_date_from_text(text)
 
 
 def _next_step(current: str) -> str | None:

@@ -26,6 +26,7 @@ from telegram.request import HTTPXRequest
 import agent
 import config
 import languages
+import text_match
 import transcriber
 
 logging.basicConfig(
@@ -180,7 +181,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await file.download_to_drive(ogg_path)
 
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-        transcribed = transcriber.transcribe_audio(ogg_path)
+        chat_lang = languages.get_language(chat_id)
+        transcribed = transcriber.transcribe_audio(ogg_path, language=chat_lang)
+        transcribed = text_match.normalize_transcription(transcribed)
         ogg_path = ""
 
         await update.message.reply_text(

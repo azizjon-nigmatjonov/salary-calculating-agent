@@ -5,25 +5,36 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date, timedelta
 from typing import Any
 
 import ollama
 
+import amount_parse
 import config
+import date_parse
 import languages
 import registration
 import tools
-import uzbek_commands
 import uzbek_commands
 
 logger = logging.getLogger(__name__)
 
 conversation_history: dict[int, list[dict[str, str]]] = {}
 
-INTENT_SYSTEM_PROMPT = """You are a salary management AI assistant. Your job is to understand what the user wants and extract a structured command.
+def build_intent_system_prompt() -> str:
+    """Build intent prompt with today's date injected at runtime."""
+    today = date.today()
+    today_str = today.isoformat()
+    yesterday_str = (today - timedelta(days=1)).isoformat()
+    year = today.year
 
-Analyze the user message and return ONLY valid JSON:
-{
+    return f"""You are a salary management AI assistant. Today's date is {today_str}.
+
+Your job is to understand what the user wants and extract a structured command.
+Return ONLY valid JSON — no markdown, no explanation.
+
+{{
   "action": "register" | "update" | "add_bonus" | "add_advance" | "add_penalty" | "delete_worker" | "payout" | "calculate" | "get" | "list" | "history" | "chat",
   "worker": "name slug in lowercase or null",
   "full_name": "string or null",
@@ -32,28 +43,52 @@ Analyze the user message and return ONLY valid JSON:
   "fixed_salary": number or null,
   "amount": number or null,
   "note": "string or null",
+  "date": "YYYY-MM-DD or null",
   "period": "YYYY-MM or null",
   "language": "en" | "ru" | "uz" | "other"
-}
+}}
+
+DATE PARSING RULES — critical:
+- Today is {today_str}. Use this when resolving partial or relative dates.
+- "February 15" / "15-fevral" / "15 февраля" → "{year}-02-15" (current year unless another year is stated)
+- "This year in February 15th" / "this year February 15" → "{year}-02-15" ("this year" = {year})
+- "2026 February 15" / "2026 Feb 15th" → "2026-02-15" (year before month name)
+- "February 15, 2026" / "15th of February 2026" → "2026-02-15"
+- "today" / "bugun" / "сегодня" → "{today_str}"
+- "yesterday" / "kecha" / "вчера" → "{yesterday_str}"
+- "last Monday" / "o'tgan dushanba" → calculate from {today_str}
+- "March 2025" / "2025-yil mart" → period "2025-03", date null unless a specific day is given
+- For bonus/advance/penalty/payout with a specific day → set date to YYYY-MM-DD
+- For calculate with only a month → set period to YYYY-MM
+- If no date or month mentioned → date and period null
+
+AMOUNT PARSING RULES — always output plain numbers, never words:
+- "500 ming" / "500к" / "500 thousand" / "500 ming so'm" → 500000
+- "1 million" / "1 mln" / "1 млн" / "1 million som" → 1000000
+- "six million" / "Six million." / "olti million" / "шесть миллионов" → 6000000
+- "five million" / "besh million" → 5000000
+- "yarim million" / "yarim mln" / "half a million" → 500000
 
 Use "chat" for greetings, questions, or anything not related to salary operations.
 Detect the language of the user's message and put it in "language".
 Infer missing worker or amount from recent conversation context when the user says things like "him", "the same", or "do that for Kamol".
+Treat common typos and speech-to-text errors as the intended phrase (e.g. "yengi" = "yangi", "qosh" = "qo'sh", "ishci" = "ishchi", "avns" = "avans").
 
 Examples:
-"Register Ali Karimov, started 2024-03-01, born 1990-05-15, salary 5 million" → {"action":"register","worker":null,"full_name":"Ali Karimov","job_started_date":"2024-03-01","birthdate":"1990-05-15","fixed_salary":5000000,"amount":null,"note":null,"period":null,"language":"en"}
-"Add a new worker" → {"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"en"}
-"Register new worker, Bobur, age 22, salary 5 mln" → {"action":"register","worker":null,"full_name":"Bobur","job_started_date":null,"birthdate":null,"fixed_salary":5000000,"amount":null,"note":null,"period":null,"language":"en"}
-"Yangi ishchi qo'sh" → {"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
-"Yangi ishchi qosh" → {"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
-"Ishchini o'zchirib tashla" → {"action":"delete_worker","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
-"avans berdim" → {"action":"add_advance","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
-"Shtraf soldim" → {"action":"add_penalty","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"uz"}
-"500 ming bonus qo'sh Aliga" → {"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"period":null,"language":"uz"}
-"Добавь аванс 200000 Бобуру" → {"action":"add_advance","worker":"bobur","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":200000,"note":null,"period":null,"language":"ru"}
-"Calculate Kamol's salary for March 2025" → {"action":"calculate","worker":"kamol","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":"2025-03","language":"en"}
-"Show all workers" → {"action":"list","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"en"}
-"Hi, how are you?" → {"action":"chat","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"period":null,"language":"en"}
+"Register Ali Karimov, started 2024-03-01, born 1990-05-15, salary 5 million" → {{"action":"register","worker":null,"full_name":"Ali Karimov","job_started_date":"2024-03-01","birthdate":"1990-05-15","fixed_salary":5000000,"amount":null,"note":null,"date":null,"period":null,"language":"en"}}
+"Add a new worker" → {{"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"date":null,"period":null,"language":"en"}}
+"Yangi ishchi qo'sh" → {{"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"date":null,"period":null,"language":"uz"}}
+"yengi ishchi" → {{"action":"register","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"date":null,"period":null,"language":"uz"}}
+"500 ming bonus qo'sh Aliga" → {{"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"date":null,"period":null,"language":"uz"}}
+"February 15 kuni Aliga 500 ming qo'sh" → {{"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"date":"{year}-02-15","period":"{year}-02","language":"uz"}}
+"15-fevral kuni Aliga 500 ming bonus" → {{"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"date":"{year}-02-15","period":"{year}-02","language":"uz"}}
+"Добавь Бобуру 200000 за 15 февраля" → {{"action":"add_advance","worker":"bobur","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":200000,"note":null,"date":"{year}-02-15","period":"{year}-02","language":"ru"}}
+"Add salary to Ali for February 15, amount 500000" → {{"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"date":"{year}-02-15","period":"{year}-02","language":"en"}}
+"This year in February 15th, add 500000 bonus to Ali" → {{"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"date":"{year}-02-15","period":"{year}-02","language":"en"}}
+"2026 February 15 Aliga 500 ming qo'sh" → {{"action":"add_bonus","worker":"ali","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":500000,"note":null,"date":"2026-02-15","period":"2026-02","language":"uz"}}
+"Calculate Kamol's salary for March 2025" → {{"action":"calculate","worker":"kamol","full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"date":null,"period":"2025-03","language":"en"}}
+"Show all workers" → {{"action":"list","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"date":null,"period":null,"language":"en"}}
+"Hi, how are you?" → {{"action":"chat","worker":null,"full_name":null,"job_started_date":null,"birthdate":null,"fixed_salary":null,"amount":null,"note":null,"date":null,"period":null,"language":"en"}}
 """
 
 DEFAULT_INTENT: dict[str, Any] = {
@@ -65,6 +100,7 @@ DEFAULT_INTENT: dict[str, Any] = {
     "fixed_salary": None,
     "amount": None,
     "note": None,
+    "date": None,
     "period": None,
     "language": "en",
 }
@@ -133,14 +169,15 @@ def _extract_intent(chat_id: int, user_text: str) -> dict[str, Any]:
         response = ollama.chat(
             model=config.OLLAMA_MODEL,
             messages=[
-                {"role": "system", "content": INTENT_SYSTEM_PROMPT},
+                {"role": "system", "content": build_intent_system_prompt()},
                 {"role": "user", "content": prompt},
             ],
         )
         intent = _extract_json(response["message"]["content"])
         for key, default in DEFAULT_INTENT.items():
             intent.setdefault(key, default)
-        return intent
+        intent = date_parse.normalize_intent_dates(intent, user_text)
+        return amount_parse.normalize_intent_amount(intent, user_text)
     except Exception as exc:
         logger.exception("Intent extraction failed: %s", exc)
         return dict(DEFAULT_INTENT)
@@ -155,6 +192,8 @@ def _dispatch_tool(intent: dict[str, Any]) -> str | None:
     worker = intent.get("worker")
     amount = intent.get("amount")
     note = intent.get("note") or ""
+    for_date = intent.get("date")
+    period = intent.get("period")
 
     if action == "register":
         full_name = intent.get("full_name")
@@ -178,17 +217,17 @@ def _dispatch_tool(intent: dict[str, Any]) -> str | None:
     if action == "add_bonus":
         if not worker or amount is None:
             return "Need a worker name and bonus amount."
-        return tools.tool_add_bonus(worker, float(amount), note)
+        return tools.tool_add_bonus(worker, float(amount), note, for_date=for_date)
 
     if action == "add_advance":
         if not worker or amount is None:
             return "Need a worker name and advance amount."
-        return tools.tool_add_advance(worker, float(amount), note)
+        return tools.tool_add_advance(worker, float(amount), note, for_date=for_date)
 
     if action == "add_penalty":
         if not worker or amount is None:
             return "Need a worker name and penalty amount."
-        return tools.tool_add_penalty(worker, float(amount), note)
+        return tools.tool_add_penalty(worker, float(amount), note, for_date=for_date)
 
     if action == "delete_worker":
         if not worker:
@@ -198,12 +237,14 @@ def _dispatch_tool(intent: dict[str, Any]) -> str | None:
     if action == "payout":
         if not worker or amount is None:
             return "Need a worker name and payout amount."
-        return tools.tool_record_payout(worker, float(amount), intent.get("period"))
+        return tools.tool_record_payout(
+            worker, float(amount), period, for_date=for_date
+        )
 
     if action == "calculate":
         if not worker:
             return "Which worker's salary should I calculate?"
-        return tools.tool_calculate_salary(worker, intent.get("period"))
+        return tools.tool_calculate_salary(worker, period)
 
     if action == "get":
         if not worker:
@@ -229,6 +270,7 @@ def _generate_reply(
 ) -> str:
     """Step 2: generate conversational reply via Ollama."""
     system_prompt = f"""You are a friendly and efficient salary management assistant. You help managers track and update worker salaries.
+Today's date is {date_parse.today_iso()}.
 
 Rules:
 - Always reply in the same language the user wrote in (detected language: {language})

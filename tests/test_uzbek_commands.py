@@ -60,7 +60,10 @@ class UzbekCommandsTests(unittest.TestCase):
         reply = uzbek_commands.try_start(101, "ishchilar soni", "uz")
         self.assertIsNotNone(reply)
         assert reply is not None
-        self.assertIn("ishchilar soni", reply.lower())
+        self.assertTrue(
+            "yo'q" in reply.lower() or "ism:" in reply.lower(),
+            msg=reply,
+        )
         self.assertFalse(uzbek_commands.has_session(101))
 
 
