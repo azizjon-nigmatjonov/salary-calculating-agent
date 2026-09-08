@@ -119,7 +119,9 @@ Each worker record includes:
 - Payouts (with optional period)
 - Full audit history
 
-Data is stored in `salaries.json` in the project folder.
+Data is stored in `salaries.json` in the project folder. This file is created
+automatically on first run and is **git-ignored** (it holds real worker data).
+See `salaries.example.json` for the on-disk shape.
 
 ## Manual verification checklist
 
@@ -160,7 +162,9 @@ salary-calculating-agent/
 ├── data.py          # JSON storage + payroll math
 ├── transcriber.py   # Whisper STT
 ├── config.py        # Settings
-├── salaries.json    # Worker database
+├── uzbek commands.csv       # Uzbek command phrases → actions
+├── salaries.json           # Worker database (git-ignored, auto-created)
+├── salaries.example.json   # Example database shape
 ├── tests/           # Unit tests
 ├── run.sh / run.bat # Startup scripts
 └── requirements.txt

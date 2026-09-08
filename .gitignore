@@ -4,3 +4,10 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# Runtime worker database (auto-created on first run) — not for version control
+salaries.json
+
+# Temp audio files from voice messages
+voice_*.ogg
+voice_*.wav

@@ -17,6 +17,26 @@ logger = logging.getLogger(__name__)
 
 _model = None
 
+# Codes we may hand to Whisper. Whisper ships Uzbek ("uz") support, but the
+# small/base models transcribe it weakly and sometimes fall back to Turkish
+# orthography — text_match.normalize_transcription() cleans that up afterwards.
+_PREFERRED_LANGUAGES = ("en", "ru", "uz")
+
+
+def _supported_language(language: str | None) -> str | None:
+    """Return language if Whisper recognizes it, else None (auto-detect)."""
+    if language not in _PREFERRED_LANGUAGES:
+        return None
+    try:
+        from whisper.tokenizer import LANGUAGES, TO_LANGUAGE_CODE
+
+        if language in LANGUAGES or language in TO_LANGUAGE_CODE:
+            return language
+    except Exception:  # pragma: no cover - defensive, whisper API drift
+        return language
+    logger.warning("Whisper does not support language %r; using auto-detect", language)
+    return None
+
 
 def _get_ffmpeg_path() -> str:
     """Return ffmpeg executable path from PATH or bundled imageio-ffmpeg."""
@@ -80,8 +100,9 @@ def transcribe_audio(ogg_path: str, language: str | None = None) -> str:
         )
         audio = _load_wav_as_float32(wav_path)
         options: dict = {"fp16": False}
-        if language in ("en", "ru", "uz"):
-            options["language"] = language
+        resolved_language = _supported_language(language)
+        if resolved_language:
+            options["language"] = resolved_language
         result = _get_model().transcribe(audio, **options)
         text = result["text"].strip()
         if not text:

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import json
+import os
 import re
+import tempfile
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -11,6 +15,22 @@ import config
 
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PERIOD_PATTERN = re.compile(r"^\d{4}-\d{2}$")
+
+# Serializes read-modify-write sequences against the JSON file. The bot runs as a
+# single process, so an in-process re-entrant lock is enough; combined with the
+# atomic replace in save_db() it prevents interleaved writes and partial reads.
+_DB_LOCK = threading.RLock()
+
+
+def _synchronized(func):
+    """Run the decorated read-modify-write helper while holding the DB lock."""
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any):
+        with _DB_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapper
 
 
 def _now_iso() -> str:
@@ -106,6 +126,7 @@ def _sync_final_salary(worker: dict[str, Any]) -> None:
     worker["final_salary"] = calculate_net_salary(worker)["net_payable"]
 
 
+@_synchronized
 def load_db() -> dict[str, Any]:
     """Load database from JSON file, creating empty structure if missing."""
     try:
@@ -134,9 +155,21 @@ def load_db() -> dict[str, Any]:
 
 
 def save_db(db: dict[str, Any]) -> None:
-    """Persist database to JSON file."""
-    with open(config.DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, indent=2, ensure_ascii=False)
+    """Persist database to JSON file atomically (write temp, then replace)."""
+    with _DB_LOCK:
+        target = config.DB_FILE
+        directory = os.path.dirname(os.path.abspath(target)) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".salaries-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(db, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, target)
+        except BaseException:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
 
 
 def normalize_worker_key(full_name: str) -> str:
@@ -174,6 +207,7 @@ def resolve_worker_key(name_or_key: str) -> str:
     return matches[0]
 
 
+@_synchronized
 def register_worker(
     full_name: str,
     job_started_date: str,
@@ -229,6 +263,7 @@ def list_workers() -> dict[str, Any]:
     return load_db()["workers"]
 
 
+@_synchronized
 def update_worker(key: str, **fields: Any) -> dict[str, Any]:
     """Partially update worker profile fields."""
     resolved = resolve_worker_key(key)
@@ -260,6 +295,7 @@ def update_worker(key: str, **fields: Any) -> dict[str, Any]:
     return {"key": resolved, **worker}
 
 
+@_synchronized
 def add_bonus(
     key: str, amount: float, note: str = "", *, for_date: str | None = None
 ) -> dict[str, Any]:
@@ -280,6 +316,7 @@ def add_bonus(
     return {"key": resolved, **worker}
 
 
+@_synchronized
 def add_penalty(
     key: str, amount: float, note: str = "", *, for_date: str | None = None
 ) -> dict[str, Any]:
@@ -300,6 +337,7 @@ def add_penalty(
     return {"key": resolved, **worker}
 
 
+@_synchronized
 def delete_worker(key: str) -> dict[str, Any]:
     """Remove a worker from the database."""
     resolved = resolve_worker_key(key)
@@ -309,6 +347,7 @@ def delete_worker(key: str) -> dict[str, Any]:
     return {"key": resolved, **worker}
 
 
+@_synchronized
 def add_advance(
     key: str, amount: float, note: str = "", *, for_date: str | None = None
 ) -> dict[str, Any]:
@@ -329,6 +368,7 @@ def add_advance(
     return {"key": resolved, **worker}
 
 
+@_synchronized
 def record_payout(
     key: str,
     amount: float,

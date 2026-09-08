@@ -1,0 +1,41 @@
+{
+  "workers": {
+    "ali_karimov": {
+      "full_name": "Ali Karimov",
+      "job_started_date": "2024-03-01",
+      "birthdate": "1990-05-15",
+      "fixed_salary": 5000000.0,
+      "bonuses": [
+        {
+          "amount": 500000.0,
+          "note": "performance",
+          "timestamp": "2025-03-05T10:00:00",
+          "for_date": "2025-03-05"
+        }
+      ],
+      "advances": [
+        {
+          "amount": 1000000.0,
+          "note": "",
+          "timestamp": "2025-03-10T09:00:00"
+        }
+      ],
+      "penalties": [],
+      "payouts": [
+        {
+          "amount": 3000000.0,
+          "timestamp": "2025-03-31T18:00:00",
+          "period": "2025-03"
+        }
+      ],
+      "history": [
+        {
+          "action": "register",
+          "details": "Registered with fixed salary 5,000,000",
+          "timestamp": "2024-03-01T09:00:00"
+        }
+      ],
+      "final_salary": 1500000.0
+    }
+  }
+}

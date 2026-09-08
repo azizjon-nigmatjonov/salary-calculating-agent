@@ -1,7 +1,12 @@
 """Unit tests for registration wizard."""
 
+import json
+import os
+import tempfile
 import unittest
+from unittest import mock
 
+import data
 import registration
 
 
@@ -10,9 +15,16 @@ class RegistrationWizardTests(unittest.TestCase):
 
     def setUp(self) -> None:
         registration.clear_session(999)
+        self.tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"workers": {}}, self.tmp)
+        self.tmp.close()
+        self.db_patcher = mock.patch.object(data.config, "DB_FILE", self.tmp.name)
+        self.db_patcher.start()
 
     def tearDown(self) -> None:
         registration.clear_session(999)
+        self.db_patcher.stop()
+        os.unlink(self.tmp.name)
 
     def test_start_add_new_worker(self) -> None:
         reply = registration.start_session(999, "en")

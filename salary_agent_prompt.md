@@ -2,6 +2,20 @@
 
 > Paste this entire prompt into Claude Code (terminal or VS Code extension) to scaffold the full project.
 
+> ⚠️ **Historical document.** This is the *original* scaffolding prompt. The implementation has
+> since evolved and this file is **not** kept in sync with the code. Notable differences:
+>
+> | This prompt | Actual implementation |
+> |-------------|-----------------------|
+> | Simple `balance` per worker, `add` / `subtract` actions | Ledger model: `fixed_salary` + `bonuses` / `advances` / `penalties` / `payouts`, with a computed `final_salary` |
+> | `data.py`: `add_salary` / `subtract_salary` / `get_salary` | `register_worker`, `add_bonus`, `add_advance`, `add_penalty`, `record_payout`, `calculate_net_salary`, … |
+> | Config hardcoded in `config.py` | Config loaded from `.env` via `python-dotenv` (`config.py` + `.env.example`) |
+> | Whisper auto-detect only | Language passed explicitly (`en` / `ru` / `uz`) when known |
+> | No date/amount parsing | Dedicated `date_parse.py` / `amount_parse.py` offline fallbacks + registration & Uzbek-command wizards |
+>
+> **For current behaviour, `README.md` is the source of truth.** Keep this file only as a record
+> of how the project was bootstrapped.
+
 ---
 
 ## Project overview

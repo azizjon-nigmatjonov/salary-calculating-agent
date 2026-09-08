@@ -1,0 +1,17 @@
+Commands uzbek;Means;Do
+ishchini o'chirib tashla;delete the worker;Delete a worker from the list
+ishchini o'zchirib tashla;delete the worker (typo variant);Delete a worker from the list
+ishchini o'chir;remove the worker;Delete a worker from the list
+avans berdim;I gave an advance;Add an advance for a worker
+avans berildi;an advance was given;Add an advance for a worker
+shtraf soldim;I applied a penalty;Add a penalty (shtraf) for a worker
+jarima qo'ydim;I put a penalty;Add a penalty (jarima) for a worker
+ishchilar ro'yxatini ber;give the list of workers;List all workers
+ishcilar ro'yxati;list of workers (typo variant);List all workers
+ishchilar ro'yxati;list of workers;List all workers
+ishchilar soni;number of workers;List all workers with count
+ishchilar royxati;workers list (no apostrophe);List all workers
+ishchilar royhati;workers list (misspelled);List all workers
+ishchilarmni ko'rsat;show my workers;List all workers
+ishchilrim;my workers (typo);List all workers
+ishchilarim;my workers;List all workers
