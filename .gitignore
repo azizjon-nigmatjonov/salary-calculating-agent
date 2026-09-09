@@ -8,6 +8,13 @@ venv/
 # Runtime worker database (auto-created on first run) — not for version control
 salaries.json
 
+# Runtime per-chat language choices (auto-created on first run)
+languages.json
+
+# Stray atomic-write temp files (normally removed immediately)
+.salaries-*.tmp
+.languages-*.tmp
+
 # Temp audio files from voice messages
 voice_*.ogg
 voice_*.wav

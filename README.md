@@ -165,6 +165,7 @@ salary-calculating-agent/
 ├── uzbek commands.csv       # Uzbek command phrases → actions
 ├── salaries.json           # Worker database (git-ignored, auto-created)
 ├── salaries.example.json   # Example database shape
+├── languages.json          # Per-chat language choices (git-ignored, auto-created)
 ├── tests/           # Unit tests
 ├── run.sh / run.bat # Startup scripts
 └── requirements.txt

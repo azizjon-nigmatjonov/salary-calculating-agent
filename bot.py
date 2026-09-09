@@ -208,6 +208,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 pass
 
 
+async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log errors raised while handling updates or polling."""
+    logger.error(
+        "Update handling failed at %s",
+        datetime.now().isoformat(),
+        exc_info=context.error,
+    )
+
+
 def main() -> None:
     """Start the Telegram bot."""
     if not config.BOT_TOKEN:
@@ -228,9 +237,10 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^lang_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_error_handler(handle_error)
 
     logger.info("Salary Agent bot starting...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
