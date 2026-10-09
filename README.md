@@ -4,6 +4,23 @@ A local Telegram assistant that helps managers register workers, track bonuses a
 
 The bot runs entirely on your machine using Ollama for AI and Whisper for voice transcription. No external AI APIs are required beyond Telegram messaging.
 
+## How to run
+
+```bash
+cd ~/ml-engineering/salary-calculating-agent
+ollama serve                         # in another terminal, if Ollama isn't already running
+./.venv/bin/python bot.py            # Ctrl-C to stop
+```
+
+Or `./run.sh`, which starts `ollama serve` in the background and then runs `python bot.py`
+(using whichever `python` is on your PATH, not `.venv`).
+
+Needs `BOT_TOKEN` in `.env`, `ffmpeg` on PATH (for voice messages), and the Ollama model
+pulled once: `ollama pull llama3.2`. Then message the bot in Telegram.
+
+This is a standalone bot with its own `salaries.json`; it doesn't use `salary-backend`.
+First time only: see [Setup](#setup).
+
 ## Salary formula
 
 **Net payable** = `fixed_salary + bonuses − advances − payouts`
